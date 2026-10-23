@@ -100,3 +100,81 @@ async def refresh_closes_rows_and_completes(dut):
 
     result = await transact(dut, False, 0x20)
     assert result == 0x5A, f"Data should persist across refresh; got {result!r}"
+
+
+
+@cocotb.test()
+async def row_conflict_preserves_each_address(dut):
+    """Access two rows in one bank and verify precharge/activate handling."""
+    cocotb.start_soon(pulse_clock(dut))
+    await reset_dut(dut)
+
+    # Same bank (address[7:6] == 0), different rows (address[5:4]).
+    vectors = [(0x01, 0x11), (0x21, 0x22), (0x31, 0x33), (0x01, 0x44)]
+    for addr, data in vectors:
+        await transact(dut, True, addr, data)
+
+    # The last write overwrites 0x01; other row data must remain intact.
+    expected = [(0x01, 0x44), (0x21, 0x22), (0x31, 0x33)]
+    for addr, data in expected:
+        result = await transact(dut, False, addr)
+        assert result == data, (
+            f"Address 0x{addr:02X}: expected 0x{data:02X}, got {result!r}"
+        )
+
+
+@cocotb.test()
+async def request_is_not_accepted_during_refresh(dut):
+    """A request presented with refresh must wait rather than be lost as accepted."""
+    cocotb.start_soon(pulse_clock(dut))
+    await reset_dut(dut)
+
+    dut.refresh_req.value = 1
+    dut.req_valid.value = 1
+    dut.req_write.value = 1
+    dut.req_addr.value = 0x52
+    dut.req_wdata.value = 0xD7
+    await Timer(1, unit="ns")
+    assert int(dut.req_ready.value) == 0, "req_ready must be low during refresh request"
+
+    await cycle(dut)
+    dut.refresh_req.value = 0
+    dut.req_valid.value = 0
+
+    for _ in range(30):
+        await cycle(dut)
+        if int(dut.refresh_done.value):
+            break
+    else:
+        raise AssertionError("refresh did not complete")
+
+    # The unaccepted write must not have modified memory.
+    result = await transact(dut, False, 0x52)
+    assert result == 0, f"Unaccepted write unexpectedly changed memory to 0x{result:02X}"
+
+
+@cocotb.test()
+async def deterministic_mixed_traffic_scoreboard(dut):
+    """Check a deterministic mix of writes/reads against a Python reference model."""
+    cocotb.start_soon(pulse_clock(dut))
+    await reset_dut(dut)
+
+    reference = {}
+    vectors = [
+        (True, 0x03, 0xA1), (True, 0x43, 0xB2), (True, 0x83, 0xC3),
+        (True, 0xC3, 0xD4), (True, 0x23, 0xE5), (True, 0x63, 0xF6),
+        (False, 0x03, 0), (False, 0x43, 0), (False, 0x83, 0),
+        (False, 0xC3, 0), (False, 0x23, 0), (False, 0x63, 0),
+        (True, 0x03, 0x5A), (False, 0x03, 0),
+    ]
+    for write, addr, data in vectors:
+        if write:
+            await transact(dut, True, addr, data)
+            reference[addr] = data
+        else:
+            result = await transact(dut, False, addr)
+            expected = reference.get(addr, 0)
+            assert result == expected, (
+                f"Scoreboard mismatch at 0x{addr:02X}: "
+                f"expected 0x{expected:02X}, got {result!r}"
+            )
