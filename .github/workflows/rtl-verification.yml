@@ -37,7 +37,7 @@ jobs:
           make -j2
           sudo make install
           verilator --version
-          verilator --version | grep -E '5\\.036|5\\.(0(3[7-9]|[4-9][0-9])|[1-9][0-9])'
+          verilator --version | grep -F 'Verilator 5.036 '
 
       - name: Install Cocotb
         run: |
