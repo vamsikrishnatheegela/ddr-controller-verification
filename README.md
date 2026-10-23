@@ -112,29 +112,46 @@ The coverage collector checks:
 
 Coverage closure is based on these explicitly defined bins and event goals. It should not be interpreted as exhaustive functional or formal coverage of all possible RTL behaviors.
 
-## Simulation waveform and debugging
+## Simulation waveform and signal-level analysis
 
-A simulation waveform was generated and inspected in **GTKWave**. The capture includes the main interface signals and internal control/debug signals, including:
+### Waveform overview
 
-- Clock and active-low reset: `clk`, `rst_n`.
-- Request/response handshake: `req_valid`, `req_ready`, `rsp_valid`.
-- Transaction controls and data: `req_write`, `req_addr`, `req_wdata`, `rsp_rdata`.
-- Refresh controls: `refresh_req`, `refresh_done`.
-- Bank/row tracking: `bank_open`, `open_row[]`.
-- Saved transaction context: `saved_addr`, `saved_bank`, `saved_row`, `saved_wdata`, `saved_write`.
-- Controller progress: `state`, `timer`, and timing parameters.
+The waveform below is a **signal-interpretation guide based on the GTKWave capture**. It explains the signal groups and transaction sequence. It is not a byte-for-byte copy of the GTKWave screenshot; the original capture is currently not stored as a repository image.
 
-Waveform inspection is useful for correlating request acceptance with FSM transitions, timer progression, bank/row tracking, and response activity. The waveform is a debugging artifact and does not by itself establish protocol compliance or performance.
+![DDR-inspired controller waveform signal guide](docs/images/waveform_signal_guide.svg)
 
-To generate a local waveform where supported by the installed Cocotb/Verilator setup:
+### What the signals show
 
-```bash
-make clean
-make SIM=verilator WAVES=1
-find . -type f \( -name "*.vcd" -o -name "*.fst" \) -print
-```
+| Signal | What to look for in the waveform |
+|---|---|
+| `clk` | Clock edges that sequence the controller's synchronous state transitions. |
+| `rst_n` | Active-low reset. When asserted low, the controller is reset; normal transactions should occur after reset is released. |
+| `req_valid` / `req_ready` | Request handshake. A request is accepted on a clock edge when both are high. |
+| `req_write` | Selects a write (`1`) or read (`0`) request. |
+| `req_addr[7:0]` / `req_wdata[7:0]` | Address and write-data values presented by the requester. In the screenshot, address/data buses change between transactions. |
+| `rsp_valid` / `rsp_rdata[7:0]` | Response indication and returned read data. Check that the response corresponds to the accepted request. |
+| `bank_open[3:0]` / `open_row[]` | Internal bank-open and row tracking. These help inspect row activation and row-conflict handling. |
+| `saved_addr`, `saved_bank`, `saved_row`, `saved_wdata`, `saved_write` | Latched transaction context used while the controller processes a request. |
+| `state[3:0]` | FSM state encoding. Transitions show the controller progressing through precharge/activate/wait/access/response and refresh states. The numeric values correspond to the RTL enum encodings. |
+| `timer[2:0]` and timing parameters | Cycle counter and simplified timing values used by the educational model. These are cycle counts, not real DRAM nanoseconds. |
+| `refresh_req` / `refresh_done` | Refresh request and completion. Use them with FSM state and bank/row signals to inspect refresh sequencing. |
 
-Open the resulting VCD/FST file in GTKWave. Generated waveform and build files are run-specific; do not commit generated outputs unless you deliberately intend to version a small, documented evidence capture.
+### How to interpret a transaction
+
+1. **Request presentation:** the requester drives `req_valid`, `req_write`, `req_addr`, and (for writes) `req_wdata`.
+2. **Acceptance:** a transaction is accepted when `req_valid && req_ready` is true on a clock edge.
+3. **Transaction capture:** the controller stores the address, bank, row, data, and operation in the `saved_*` registers.
+4. **Controller execution:** `state` and `timer` show the FSM and simplified delay progression. Bank/row signals help identify row-opening and conflict behavior.
+5. **Response:** for reads, inspect `rsp_valid` and `rsp_rdata` and compare the returned byte with the testbench's expected value.
+6. **Reset and refresh:** inspect `rst_n`, `refresh_req`, and `refresh_done` alongside the FSM to understand reset recovery and refresh blocking/completion.
+
+Waveform inspection is a debugging and review aid. Passing the regression and coverage checks provides the test evidence; the waveform alone does not prove correctness, JEDEC compliance, or performance.
+
+### Waveform artifact
+
+The GTKWave screenshot was viewed during local verification, but the original screenshot file has not yet been committed to this repository. The SVG above is an explanatory guide, not the raw simulator trace. To make the exact screenshot appear here, add the original screenshot as `docs/images/gtkwave_capture.png` and replace the image above with that file.
+
+No ModelSim installation is required for this project. The documented flow uses Verilator for simulation and GTKWave for viewing waveform traces.
 
 ## Tools and technologies
 
@@ -145,27 +162,27 @@ Open the resulting VCD/FST file in GTKWave. Generated waveform and build files a
 - **Automation/build:** Make, Git, GitHub Actions
 - **Verification concepts:** FSM-based control, request/response handshakes, directed testing, deterministic mixed traffic, reference-model scoreboard, functional coverage, regression logging, waveform debugging
 
-## Run locally
+## Run the existing project
 
-On Ubuntu, use a compatible Verilator installation and Python environment:
+This repository's verified flow uses **Verilator + Cocotb**. **ModelSim is not required.** If you have already set up the tools and the tests pass on your machine, you do not need to install anything else just to read this README or inspect the project results.
+
+Run the regression and request waveform output:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install "cocotb>=2.1,<3"
-make SIM=verilator
+make clean
+make SIM=verilator WAVES=1
+find . -type f \( -name "*.vcd" -o -name "*.fst" \) -print
 ```
 
-To save the regression output:
+Open the generated VCD/FST file in GTKWave. The exact file location depends on the local Cocotb/Verilator setup. A normal regression also writes JUnit-style `results.xml`.
+
+To preserve a readable local test log:
 
 ```bash
 mkdir -p artifacts
 set -o pipefail
 make SIM=verilator WAVES=1 2>&1 | tee artifacts/regression.log
 ```
-
-The Cocotb regression also writes JUnit-style `results.xml`. Exact waveform location and generation depend on the installed simulator build and tracing configuration.
 
 ## Continuous integration and evidence
 
@@ -175,7 +192,7 @@ Every push to `main`, pull request, or manual workflow dispatch triggers the Git
 - **[Cocotb testbench](tests/test_ddr_controller.py)**
 - **[Verification plan](docs/verification_plan.md)**
 
-The workflow artifact is the best place to retrieve evidence associated with a particular CI commit. The waveform screenshot inspected locally is not automatically embedded in this README; it must be committed as a separate image file if a rendered screenshot is desired on the repository page.
+The workflow artifact is the best place to retrieve evidence associated with a particular CI commit. The README embeds the explanatory waveform guide above; the exact local GTKWave screenshot still needs to be added as a repository image to display the original capture here.
 
 ## Applications and relevance
 
