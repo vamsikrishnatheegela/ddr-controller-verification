@@ -1,235 +1,227 @@
-# DDR-Inspired Memory Controller — RTL Design & Functional Verification
+# DDR-Inspired Memory Controller
+### SystemVerilog RTL Design • Cocotb Verification • Functional Coverage • Waveform Debugging
 
 [![RTL Verification](https://github.com/vamsikrishnatheegela/ddr-controller-verification/actions/workflows/rtl-verification.yml/badge.svg)](https://github.com/vamsikrishnatheegela/ddr-controller-verification/actions/workflows/rtl-verification.yml)
 
-An educational **SystemVerilog memory-controller RTL model** with a Python-based **Cocotb verification environment**, compiled and simulated using **Verilator**. The project demonstrates RTL control logic, transaction-level testbench development, scoreboard checking, functional-coverage closure, continuous integration, and waveform-based debugging.
+An educational memory-controller project built to practice **RTL design and pre-silicon functional verification**. The controller is implemented in SystemVerilog, tested with a Python/Cocotb testbench, simulated with Verilator, and debugged using GTKWave.
 
-> **Scope and limitations:** This is a simplified, DDR-inspired educational controller. It is **not** a JEDEC-compliant DDR, DDR2, DDR3, DDR4, or DDR5 controller. It does not implement a physical DRAM PHY, DFI, training/calibration, electrical timing, real DDR burst protocol, ECC, or the full refresh and scheduling requirements of commercial DRAM devices.
+> **Important scope note:** This is a simplified DDR-inspired behavioral controller, not a JEDEC-compliant DDR/DDR2/DDR3/DDR4/DDR5 controller. It models selected bank, row, timing, transaction, and refresh concepts for learning and verification practice. It does not implement a physical DRAM PHY, DFI, training/calibration, electrical timing, full DDR command/burst behavior, or commercial DRAM scheduling requirements.
 
-## Project status
+---
 
-**Current milestone: complete.** The defined local regression passed all 10 tests, functional-coverage goals passed, the GitHub Actions regression passed, and simulation waveform inspection was completed. Further work is optional enhancement, not a blocker for describing this version as completed.
+## At a glance
 
-| Milestone | Result |
+| Item | Details |
 |---|---|
-| SystemVerilog RTL controller | Complete |
-| Cocotb regression suite | **10/10 tests passed** in the recorded local run |
-| Functional coverage closure | Passed |
-| Address-space sweep | **256/256 addresses** exercised |
-| Bank/row/column coverage | **4/4 banks, 4/4 rows, 16/16 columns** |
-| Read/write × bank coverage | **8/8 bins** |
-| GitHub Actions CI | Passed in the recorded run |
-| Waveform generation and inspection | Completed using GTKWave |
-| Functional-coverage changes | Merged into `main` (PR #1) |
+| Design | Simplified four-bank memory controller |
+| RTL language | SystemVerilog |
+| Verification | Python + Cocotb |
+| Simulator | Verilator |
+| Waveform viewer | GTKWave |
+| Automation | Make + GitHub Actions |
+| Recorded regression | **10 passed, 0 failed, 0 skipped** |
+| Address sweep | **256/256 addresses exercised** |
+| Address dimensions | **4/4 banks, 4/4 rows, 16/16 columns** |
+| Operation × bank coverage | **8/8 bins** |
+| Current milestone | **Complete; further work is optional enhancement** |
 
-These results apply to the defined tests and coverage goals; they are not a formal proof of correctness, JEDEC compliance, physical performance, or silicon behavior. Check the latest workflow run for current CI status.
+The results above are from the recorded regression and coverage run. They demonstrate that the defined tests and coverage goals passed; they are not a formal proof of all possible behavior or protocol compliance.
 
-## Key features
+## 1. Project goals
 
-- Single-request-at-a-time controller FSM.
-- Four logical banks and an internal behavioral memory model.
-- Row opening, access, precharge-like behavior, and refresh sequencing.
-- Simplified programmable/cycle-based timing parameters.
-- Read and write transaction handling with request/response handshake signals.
-- Active-low asynchronous reset and reset-recovery testing.
-- Row-conflict handling and request blocking during refresh.
-- Cocotb tests, Python reference-model scoreboard, and a functional-coverage collector.
-- Full 256-address write/readback sweep.
-- Automated GitHub Actions regression and downloadable verification evidence.
+The project was developed to demonstrate an end-to-end RTL verification workflow:
 
-## Architecture
+- Implement a controller using a finite-state machine (FSM).
+- Model a small banked memory with row tracking.
+- Support read/write transactions using request/response handshake signals.
+- Model simplified access, precharge-like, and refresh timing.
+- Verify behavior with directed tests and deterministic mixed traffic.
+- Use a reference-model scoreboard to check expected data.
+- Track functional coverage and assert defined coverage goals.
+- Run regression automatically in GitHub Actions.
+- Inspect transaction timing and internal control signals in GTKWave.
 
-### Address mapping
+## 2. RTL architecture
 
-The 8-bit request address is divided into bank, row, and column fields:
+### Simplified memory organization
 
-| Address bits | Field | Range |
-|---|---|---|
-| `[7:6]` | Bank | 0–3 (4 banks) |
-| `[5:4]` | Row | 0–3 (4 rows per bank) |
-| `[3:0]` | Column | 0–15 (16 columns per row) |
+The request address is 8 bits and is split into bank, row, and column fields:
 
-The behavioral memory contains 256 bytes in total. This address mapping is deliberately small so that the complete address space can be swept in simulation.
+| Address bits | Field | Number of values |
+|---|---|---:|
+| `req_addr[7:6]` | Bank | 4 |
+| `req_addr[5:4]` | Row | 4 per bank |
+| `req_addr[3:0]` | Column | 16 per row |
 
-### Request/response interface
+This gives **4 × 4 × 16 = 256 byte-addressable locations** in the behavioral model. The compact address space makes exhaustive address sweeping practical.
 
-- `req_valid`: requester indicates a transaction is available.
-- `req_ready`: controller indicates it can accept a transaction.
-- A request is accepted when `req_valid && req_ready` is true.
-- `req_write=1`: write request; `req_write=0`: read request.
-- `req_addr[7:0]`: 8-bit address.
-- `req_wdata[7:0]`: 8-bit write data.
-- `rsp_valid`: response-valid indication.
-- `rsp_rdata[7:0]`: 8-bit read data.
-- `refresh_req` / `refresh_done`: refresh request and completion signals.
-- `clk` and active-low asynchronous `rst_n`: clock and reset.
+### Request and response interface
 
-### Controller state machine
+| Signal | Role |
+|---|---|
+| `clk` | Controller clock |
+| `rst_n` | Active-low asynchronous reset |
+| `req_valid` | Requester presents a transaction |
+| `req_ready` | Controller can accept a request |
+| `req_write` | `1` for write, `0` for read |
+| `req_addr[7:0]` | Address of the requested location |
+| `req_wdata[7:0]` | Write data |
+| `rsp_valid` | Response-valid indication |
+| `rsp_rdata[7:0]` | Read response data |
+| `refresh_req` | Refresh request |
+| `refresh_done` | Refresh completion indication |
 
-The RTL models these states:
+A request is accepted on a clock edge when `req_valid` and `req_ready` are both asserted. The controller saves the transaction context so that it can process the request through subsequent FSM states.
+
+### Controller FSM
+
+The RTL contains the following states:
 
 1. `ST_IDLE` — wait for a request or refresh activity.
 2. `ST_PRECHARGE` — close/precharge a conflicting open row.
 3. `ST_ACTIVATE` — open the target row.
-4. `ST_RCD_WAIT` — wait the simplified row-to-column delay.
-5. `ST_ACCESS` — perform the behavioral read/write access.
-6. `ST_RESPONSE` — return transaction response.
+4. `ST_RCD_WAIT` — wait the model's simplified row-to-column delay.
+5. `ST_ACCESS` — perform the behavioral read or write.
+6. `ST_RESPONSE` — return the response.
 7. `ST_REFRESH_PRE` — prepare banks for refresh.
-8. `ST_REFRESH_WAIT` — wait the simplified refresh interval.
+8. `ST_REFRESH_WAIT` — wait for the model's refresh interval.
 
-The RTL includes timing parameters such as `MAX_DELAY`, `TIMER_W`, `T_RCD`, `T_RFC`, and `T_RP`. In this educational model, timing values represent simulation-cycle counts, not real DRAM timing in nanoseconds.
+Timing-related parameters include `MAX_DELAY`, `TIMER_W`, `T_RCD`, `T_RFC`, and `T_RP`. They represent simplified simulation-cycle timing in this model, **not real DRAM timing specifications in nanoseconds**.
 
-## Verification methodology
+## 3. Actual simulation waveform
 
-The testbench is written in Python using Cocotb. It drives the controller interface, observes responses, checks transaction results, and uses a reference-model scoreboard for deterministic mixed traffic. A functional-coverage collector tracks whether selected behaviors and address dimensions have been exercised.
+The following is the GTKWave screenshot captured from the project's simulation.
+
+![Actual GTKWave waveform capture for the DDR-inspired memory controller](docs/images/gtkwave_capture.png)
+
+### How to read this waveform
+
+The trace shows the clock, external transaction interface, saved transaction fields, bank/row tracking, FSM state, timer, and timing parameters in one view. Together, these signals help correlate what the requester drives with how the controller processes a transaction.
+
+| Signal or group | What it means | What to inspect |
+|---|---|---|
+| `clk` | Clock | State and registered signals progress relative to clock edges. |
+| `rst_n` | Active-low reset | Check the reset assertion and release before normal transaction activity. |
+| `req_valid`, `req_ready` | Request handshake | A request is accepted when both are high at a sampling clock edge. |
+| `req_write` | Operation selector | Distinguishes write transactions from read transactions. |
+| `req_addr[7:0]` | Requested address | Observe address changes between transactions. |
+| `req_wdata[7:0]` | Write payload | Check the data value presented for a write. |
+| `rsp_valid`, `rsp_rdata[7:0]` | Response and read data | Observe response activity and compare returned data with the testbench's expected value. |
+| `saved_addr`, `saved_bank`, `saved_row`, `saved_wdata`, `saved_write` | Captured request context | Confirm that the accepted transaction's fields are retained while the FSM works on it. |
+| `bank_open[3:0]`, `open_row[]` | Internal bank and row tracking | Inspect which banks/rows are marked open and how the model handles row changes. |
+| `state[3:0]` | Encoded FSM state | Follow controller progression through its access and response sequence. Numeric labels are state encodings, not time values. |
+| `timer[2:0]` | Internal timing counter | Observe the counter used for simplified cycle delays. |
+| `MAX_DELAY`, `T_RCD`, `T_RFC`, `T_RP`, `TIMER_W` | Timing/configuration values | These are model parameters/constants visible in the trace. |
+| `refresh_req`, `refresh_done` | Refresh interface | Correlate refresh request/completion with FSM and bank/row signals when refresh is exercised. |
+
+### Transaction sequence represented by the signals
+
+1. **Present a request:** the requester drives `req_valid`, `req_write`, `req_addr`, and (for a write) `req_wdata`.
+2. **Accept the request:** the handshake occurs when `req_valid && req_ready` is true at a clock edge.
+3. **Capture transaction details:** `saved_addr`, `saved_bank`, `saved_row`, `saved_wdata`, and `saved_write` show the saved request context.
+4. **Execute the operation:** `state`, `timer`, `bank_open`, and `open_row[]` help show the controller's internal progression and row tracking.
+5. **Return a response:** inspect `rsp_valid` and, for reads, `rsp_rdata`; the testbench checks behavior against expected results.
+6. **Check reset and refresh behavior:** use `rst_n`, `refresh_req`, and `refresh_done` with the FSM to debug these control paths.
+
+**What the waveform establishes:** the simulation exposes the interface and internal state needed for signal-level debugging. Correctness claims come from the regression checks and coverage goals together with RTL review—not from the screenshot alone. The waveform is not evidence of JEDEC compliance, physical timing closure, or silicon performance.
+
+## 4. Verification strategy and results
+
+The testbench uses Cocotb to drive inputs, wait for controller behavior, inspect outputs, and compare results. A reference-model scoreboard checks deterministic mixed traffic. A functional-coverage collector records whether selected address dimensions, operations, data classes, refresh events, and reset events have been exercised.
 
 ### Test scenarios
 
-The 10-test regression includes:
+The recorded regression contains 10 tests:
 
 1. Write/readback behavior.
 2. Access across multiple banks.
 3. Refresh closes rows and completes.
-4. Row-conflict behavior preserves data at each address.
-5. Request is not accepted during refresh.
+4. Row-conflict handling preserves data at each address.
+5. Requests are not accepted during refresh.
 6. Deterministic mixed traffic checked with a scoreboard.
 7. Reset clears controller and behavioral memory state.
 8. Full address-space sweep.
 9. Consecutive transactions keep data isolated.
 10. Functional-coverage closure.
 
-### Functional coverage goals
+### Functional coverage
 
-The coverage collector checks:
+| Coverage item | Recorded result |
+|---|---:|
+| Address values | **256/256** |
+| Banks | **4/4** |
+| Rows | **4/4** |
+| Columns | **16/16** |
+| Read and write operations | Both exercised |
+| Operation × bank cross | **8/8 bins** |
+| Write-data classes | Zero, all-ones, alternating (`0x55`/`0xAA`), other |
+| Refresh request/completion | Defined minimum event goals passed |
+| Reset | Defined event goal passed |
 
-- **Address space:** 256/256 addresses.
-- **Address dimensions:** 4/4 banks, 4/4 rows, and 16/16 columns.
-- **Operations:** read and write.
-- **Cross coverage:** 8/8 operation-by-bank bins.
-- **Write-data classes:** zero, all-ones, alternating patterns (including `0x55`/`0xAA`), and other values.
-- **Refresh:** minimum request and completion event goals.
-- **Reset:** reset-event goal.
+Coverage closure means the **specified bins and event goals** were met. It does not imply every possible FSM transition, input combination, timing corner, or formal property has been proven.
 
-Coverage closure is based on these explicitly defined bins and event goals. It should not be interpreted as exhaustive functional or formal coverage of all possible RTL behaviors.
+### Continuous integration
 
-## Simulation waveform and signal-level analysis
+The GitHub Actions workflow builds/uses the specified Verilator version, installs Cocotb, runs the regression, records the tool/version and regression log, and uploads available verification evidence.
 
-### Waveform overview
+- [RTL Verification workflow and run history](https://github.com/vamsikrishnatheegela/ddr-controller-verification/actions/workflows/rtl-verification.yml)
+- [Cocotb testbench](tests/test_ddr_controller.py)
+- [Verification plan](docs/verification_plan.md)
 
-The waveform below is a **signal-interpretation guide based on the GTKWave capture**. It explains the signal groups and transaction sequence. It is not a byte-for-byte copy of the GTKWave screenshot; the original capture is currently not stored as a repository image.
+The functional-coverage milestone was merged into `main` in PR #1. Documentation changes are tracked separately in PR #2.
 
-![GTKWave simulation waveform showing controller timing, request/response, bank/row tracking, FSM state and timer](docs/images/gtkwave_capture.png)
+## 5. Technology stack and skills demonstrated
 
-### What the signals show
+**Tools:** SystemVerilog, Python, Cocotb, Verilator, GTKWave, Make, Git, GitHub, GitHub Actions.
 
-| Signal | What to look for in the waveform |
-|---|---|
-| `clk` | Clock edges that sequence the controller's synchronous state transitions. |
-| `rst_n` | Active-low reset. When asserted low, the controller is reset; normal transactions should occur after reset is released. |
-| `req_valid` / `req_ready` | Request handshake. A request is accepted on a clock edge when both are high. |
-| `req_write` | Selects a write (`1`) or read (`0`) request. |
-| `req_addr[7:0]` / `req_wdata[7:0]` | Address and write-data values presented by the requester. In the screenshot, address/data buses change between transactions. |
-| `rsp_valid` / `rsp_rdata[7:0]` | Response indication and returned read data. Check that the response corresponds to the accepted request. |
-| `bank_open[3:0]` / `open_row[]` | Internal bank-open and row tracking. These help inspect row activation and row-conflict handling. |
-| `saved_addr`, `saved_bank`, `saved_row`, `saved_wdata`, `saved_write` | Latched transaction context used while the controller processes a request. |
-| `state[3:0]` | FSM state encoding. Transitions show the controller progressing through precharge/activate/wait/access/response and refresh states. The numeric values correspond to the RTL enum encodings. |
-| `timer[2:0]` and timing parameters | Cycle counter and simplified timing values used by the educational model. These are cycle counts, not real DRAM nanoseconds. |
-| `refresh_req` / `refresh_done` | Refresh request and completion. Use them with FSM state and bank/row signals to inspect refresh sequencing. |
+**RTL design:** FSM design, handshake-based interfaces, behavioral memory modeling, address decoding, bank/row tracking, reset sequencing, simplified timing control, refresh sequencing.
 
-### How to interpret a transaction
+**Verification:** directed testing, deterministic mixed traffic, reference-model scoreboard, read/write data checking, address-space sweep, functional coverage, regression automation, waveform-based debugging, log/evidence capture.
 
-1. **Request presentation:** the requester drives `req_valid`, `req_write`, `req_addr`, and (for writes) `req_wdata`.
-2. **Acceptance:** a transaction is accepted when `req_valid && req_ready` is true on a clock edge.
-3. **Transaction capture:** the controller stores the address, bank, row, data, and operation in the `saved_*` registers.
-4. **Controller execution:** `state` and `timer` show the FSM and simplified delay progression. Bank/row signals help identify row-opening and conflict behavior.
-5. **Response:** for reads, inspect `rsp_valid` and `rsp_rdata` and compare the returned byte with the testbench's expected value.
-6. **Reset and refresh:** inspect `rst_n`, `refresh_req`, and `refresh_done` alongside the FSM to understand reset recovery and refresh blocking/completion.
+## 6. Applications and industry relevance
 
-Waveform inspection is a debugging and review aid. Passing the regression and coverage checks provides the test evidence; the waveform alone does not prove correctness, JEDEC compliance, or performance.
-
-### Waveform artifact
-
-The screenshot above is the GTKWave waveform captured from the simulation. It shows the clock and reset, request/response handshake, request address/data, refresh signals, bank/row tracking, saved transaction fields, FSM state, timer, and simplified timing parameters. The visible activity can be used to correlate transaction acceptance with internal controller progression and response behavior.
-
-No ModelSim installation is required for this project. The documented flow uses Verilator for simulation and GTKWave for viewing waveform traces.
-
-## Tools and technologies
-
-- **RTL:** SystemVerilog
-- **Testbench:** Python, Cocotb 2.1.x
-- **Simulator:** Verilator 5.036 or later
-- **Waveform viewer:** GTKWave
-- **Automation/build:** Make, Git, GitHub Actions
-- **Verification concepts:** FSM-based control, request/response handshakes, directed testing, deterministic mixed traffic, reference-model scoreboard, functional coverage, regression logging, waveform debugging
-
-## Run the existing project
-
-This repository's verified flow uses **Verilator + Cocotb**. **ModelSim is not required.** If you have already set up the tools and the tests pass on your machine, you do not need to install anything else just to read this README or inspect the project results.
-
-Run the regression and request waveform output:
-
-```bash
-make clean
-make SIM=verilator WAVES=1
-find . -type f \( -name "*.vcd" -o -name "*.fst" \) -print
-```
-
-Open the generated VCD/FST file in GTKWave. The exact file location depends on the local Cocotb/Verilator setup. A normal regression also writes JUnit-style `results.xml`.
-
-To preserve a readable local test log:
-
-```bash
-mkdir -p artifacts
-set -o pipefail
-make SIM=verilator WAVES=1 2>&1 | tee artifacts/regression.log
-```
-
-## Continuous integration and evidence
-
-Every push to `main`, pull request, or manual workflow dispatch triggers the GitHub Actions verification workflow. It records the commit SHA and tool versions, runs the regression, and uploads available regression logs, JUnit XML, waveform/build outputs as a downloadable artifact.
-
-- **[RTL Verification workflow and run history](https://github.com/vamsikrishnatheegela/ddr-controller-verification/actions/workflows/rtl-verification.yml)**
-- **[Cocotb testbench](tests/test_ddr_controller.py)**
-- **[Verification plan](docs/verification_plan.md)**
-
-The workflow artifact is the best place to retrieve evidence associated with a particular CI commit. The README embeds the explanatory waveform guide above; the exact local GTKWave screenshot still needs to be added as a repository image to display the original capture here.
-
-## Applications and relevance
-
-This project demonstrates foundational techniques applicable to:
+The techniques demonstrated are transferable to:
 
 - RTL design and verification of memory-interface IP.
-- SoC peripheral and embedded-system controller blocks.
-- Behavioral memory and SRAM/BRAM controller exercises.
+- SoC control blocks and embedded-system peripherals.
+- Behavioral SRAM/BRAM controller exercises.
 - Pre-silicon functional validation and regression automation.
-- Debugging FSM-based control logic using waveform traces.
-- Verification environments built around scoreboards and functional coverage.
+- Debugging FSM-based control logic through waveform traces.
+- Verification environments using scoreboards and functional coverage.
 
-These are skill-transfer and learning applications. The current RTL is not suitable for direct use as a commercial DDR controller.
+These are **potential application areas for the demonstrated skills**. This educational controller itself is not intended for direct use as a commercial DDR controller.
 
-## Future engineering enhancements
+## 7. Project completion and possible next steps
 
-The current milestone is complete. Potential extensions include:
+### Current milestone: complete
 
-- Add SystemVerilog Assertions (SVA) for handshake, response, reset, and refresh properties.
-- Add constrained-random traffic and reproducible seeds.
-- Measure request latency, sustained throughput, and refresh overhead.
-- Increase FSM transition and corner-case coverage.
-- Parameterize address geometry and timing, then test parameter boundaries.
+The current version has a recorded **10/10 passing test regression**, passing defined functional-coverage goals, a successful recorded CI run, and a GTKWave capture. It is ready to be presented as an educational RTL design and verification project.
+
+### Optional advancements
+
+These are future enhancements, not missing requirements for the current milestone:
+
+- Add SystemVerilog Assertions (SVA) for handshake, reset, response, and refresh properties.
+- Add constrained-random traffic with reproducible random seeds.
+- Measure request latency, throughput, and refresh overhead.
+- Expand FSM transition and corner-case coverage.
+- Parameterize memory geometry and timing, then test boundary configurations.
 - Add lint and formal-property checks.
-- Explore synthesis/timing reports using a documented flow and explicit constraints.
-- Develop a more realistic protocol model if the goal is to study JEDEC DDR behavior.
+- Explore synthesis/timing reports with documented constraints and a target library.
+- Build a more realistic DDR protocol model if JEDEC behavior becomes the project goal.
 
-If reporting PPA or performance figures, include the exact tool versions, constraints, target library, measurement method, and reports. No PPA or JEDEC-compliance claim is made for the current project.
+No synthesis PPA, physical implementation, formal proof, or JEDEC-compliance result is claimed for the current version.
 
-## Project layout
+## 8. Repository layout
 
 ```text
-.github/workflows/rtl-verification.yml
-rtl/ddr_controller.sv
-tests/test_ddr_controller.py
-Makefile
-docs/verification_plan.md
+.github/workflows/rtl-verification.yml   # CI regression workflow
+rtl/ddr_controller.sv                    # SystemVerilog controller
+tests/test_ddr_controller.py              # Cocotb tests and coverage
+docs/verification_plan.md                 # Verification plan
+docs/images/gtkwave_capture.png            # Actual GTKWave screenshot
+Makefile                                  # Simulation entry point
+README.md                                 # Project documentation
 ```
 
 ## License
