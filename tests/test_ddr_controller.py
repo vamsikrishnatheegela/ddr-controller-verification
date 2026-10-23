@@ -178,3 +178,78 @@ async def deterministic_mixed_traffic_scoreboard(dut):
                 f"Scoreboard mismatch at 0x{addr:02X}: "
                 f"expected 0x{expected:02X}, got {result!r}"
             )
+
+@cocotb.test()
+async def reset_clears_controller_and_memory(dut):
+    """Reset during activity returns the controller to a clean initial state."""
+    cocotb.start_soon(pulse_clock(dut))
+    await reset_dut(dut)
+    await transact(dut, True, 0xA5, 0xE7)
+
+    # Start refresh, then assert asynchronous active-low reset while busy.
+    dut.refresh_req.value = 1
+    await cycle(dut)
+    dut.refresh_req.value = 0
+    dut.rst_n.value = 0
+    await Timer(1, unit="ns")
+    assert int(dut.req_ready.value) == 1, "Controller should return to IDLE on reset"
+    assert int(dut.rsp_valid.value) == 0, "Reset must clear response-valid"
+    assert int(dut.refresh_done.value) == 0, "Reset must clear refresh-done"
+    dut.rst_n.value = 1
+    await cycle(dut)
+
+    result = await transact(dut, False, 0xA5)
+    assert result == 0, f"Reset should clear behavioral memory; got 0x{result:02X}"
+
+
+@cocotb.test()
+async def address_space_sweep(dut):
+    """Exercise every 8-bit address and verify all 256 stored bytes."""
+    cocotb.start_soon(pulse_clock(dut))
+    await reset_dut(dut)
+
+    expected = {}
+    banks = set()
+    rows = set()
+    columns = set()
+    for addr in range(256):
+        data = (addr * 73 + 19) & 0xFF
+        await transact(dut, True, addr, data)
+        expected[addr] = data
+        banks.add((addr >> 6) & 0x3)
+        rows.add((addr >> 4) & 0x3)
+        columns.add(addr & 0xF)
+
+    for addr in range(256):
+        result = await transact(dut, False, addr)
+        assert result == expected[addr], (
+            f"Address sweep mismatch at 0x{addr:02X}: "
+            f"expected 0x{expected[addr]:02X}, got {result!r}"
+        )
+
+    assert banks == {0, 1, 2, 3}, f"Not all banks covered: {banks}"
+    assert rows == {0, 1, 2, 3}, f"Not all rows covered: {rows}"
+    assert columns == set(range(16)), f"Not all columns covered: {columns}"
+    dut._log.info(
+        "Address-space coverage: addresses=256/256, banks=4/4, rows=4/4, columns=16/16"
+    )
+
+
+@cocotb.test()
+async def consecutive_transactions_keep_data_isolated(dut):
+    """Consecutive transactions to different addresses do not cross-contaminate data."""
+    cocotb.start_soon(pulse_clock(dut))
+    await reset_dut(dut)
+
+    vectors = [
+        (0x00, 0x00), (0xFF, 0xFF), (0x7F, 0x80),
+        (0x80, 0x7F), (0x55, 0xAA), (0xAA, 0x55),
+    ]
+    for addr, data in vectors:
+        await transact(dut, True, addr, data)
+    for addr, data in reversed(vectors):
+        result = await transact(dut, False, addr)
+        assert result == data, (
+            f"Address 0x{addr:02X}: expected 0x{data:02X}, got {result!r}"
+        )
+
