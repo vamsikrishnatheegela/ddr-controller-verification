@@ -118,7 +118,7 @@ Coverage closure is based on these explicitly defined bins and event goals. It s
 
 The waveform below is a **signal-interpretation guide based on the GTKWave capture**. It explains the signal groups and transaction sequence. It is not a byte-for-byte copy of the GTKWave screenshot; the original capture is currently not stored as a repository image.
 
-![DDR-inspired controller waveform signal guide](docs/images/waveform_signal_guide.svg)
+![GTKWave simulation waveform showing controller timing, request/response, bank/row tracking, FSM state and timer](docs/images/gtkwave_capture.png)
 
 ### What the signals show
 
@@ -149,7 +149,7 @@ Waveform inspection is a debugging and review aid. Passing the regression and co
 
 ### Waveform artifact
 
-The GTKWave screenshot was viewed during local verification, but the original screenshot file has not yet been committed to this repository. The SVG above is an explanatory guide, not the raw simulator trace. To make the exact screenshot appear here, add the original screenshot as `docs/images/gtkwave_capture.png` and replace the image above with that file.
+The screenshot above is the GTKWave waveform captured from the simulation. It shows the clock and reset, request/response handshake, request address/data, refresh signals, bank/row tracking, saved transaction fields, FSM state, timer, and simplified timing parameters. The visible activity can be used to correlate transaction acceptance with internal controller progression and response behavior.
 
 No ModelSim installation is required for this project. The documented flow uses Verilator for simulation and GTKWave for viewing waveform traces.
 
