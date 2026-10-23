@@ -2,6 +2,74 @@ import cocotb
 from cocotb.triggers import RisingEdge, Timer
 
 
+class FunctionalCoverage:
+    """Lightweight, simulator-independent functional coverage collector."""
+
+    def __init__(self):
+        self.addresses = set()
+        self.banks = set()
+        self.rows = set()
+        self.columns = set()
+        self.operations = set()
+        self.operation_banks = set()
+        self.data_classes = set()
+        self.refresh_requested = 0
+        self.refresh_completed = 0
+        self.reset_events = 0
+        self.transactions = 0
+
+    def sample_transaction(self, write, addr, data):
+        bank = (addr >> 6) & 0x3
+        row = (addr >> 4) & 0x3
+        column = addr & 0xF
+        self.addresses.add(addr)
+        self.banks.add(bank)
+        self.rows.add(row)
+        self.columns.add(column)
+        operation = "write" if write else "read"
+        self.operations.add(operation)
+        self.operation_banks.add((operation, bank))
+        if write:
+            if data == 0x00:
+                data_class = "zero"
+            elif data == 0xFF:
+                data_class = "all_ones"
+            elif data in (0x55, 0xAA):
+                data_class = "alternating"
+            else:
+                data_class = "other"
+            self.data_classes.add(data_class)
+        self.transactions += 1
+
+    def sample_refresh_request(self):
+        self.refresh_requested += 1
+
+    def sample_refresh_completion(self):
+        self.refresh_completed += 1
+
+    def sample_reset(self):
+        self.reset_events += 1
+
+    def report(self):
+        op_bank_hits = len(self.operation_banks)
+        return (
+            "FUNCTIONAL COVERAGE SUMMARY | "
+            f"addresses={len(self.addresses)}/256, "
+            f"banks={len(self.banks)}/4, rows={len(self.rows)}/4, "
+            f"columns={len(self.columns)}/16, "
+            f"operations={len(self.operations)}/2, "
+            f"operation_bank_bins={op_bank_hits}/8, "
+            f"write_data_classes={len(self.data_classes)}/4, "
+            f"refresh_requests={self.refresh_requested}, "
+            f"refresh_completions={self.refresh_completed}, "
+            f"reset_events={self.reset_events}, "
+            f"transactions={self.transactions}"
+        )
+
+
+coverage = FunctionalCoverage()
+
+
 async def cycle(dut, count=1):
     for _ in range(count):
         await RisingEdge(dut.clk)
@@ -9,6 +77,7 @@ async def cycle(dut, count=1):
 
 
 async def reset_dut(dut):
+    coverage.sample_reset()
     dut.clk.value = 0
     dut.rst_n.value = 0
     dut.req_valid.value = 0
@@ -49,6 +118,7 @@ async def transact(dut, write, addr, data=0):
     dut.req_valid.value = 1
     await cycle(dut)
     dut.req_valid.value = 0
+    coverage.sample_transaction(write, addr, data)
 
     for _ in range(100):
         await cycle(dut)
@@ -89,11 +159,13 @@ async def refresh_closes_rows_and_completes(dut):
     await transact(dut, True, 0x20, 0x5A)
 
     dut.refresh_req.value = 1
+    coverage.sample_refresh_request()
     await cycle(dut)
     dut.refresh_req.value = 0
     for _ in range(30):
         await cycle(dut)
         if int(dut.refresh_done.value):
+            coverage.sample_refresh_completion()
             break
     else:
         raise AssertionError("refresh_done was not asserted")
@@ -130,6 +202,7 @@ async def request_is_not_accepted_during_refresh(dut):
     await reset_dut(dut)
 
     dut.refresh_req.value = 1
+    coverage.sample_refresh_request()
     dut.req_valid.value = 1
     dut.req_write.value = 1
     dut.req_addr.value = 0x52
@@ -144,6 +217,7 @@ async def request_is_not_accepted_during_refresh(dut):
     for _ in range(30):
         await cycle(dut)
         if int(dut.refresh_done.value):
+            coverage.sample_refresh_completion()
             break
     else:
         raise AssertionError("refresh did not complete")
@@ -253,3 +327,39 @@ async def consecutive_transactions_keep_data_isolated(dut):
             f"Address 0x{addr:02X}: expected 0x{data:02X}, got {result!r}"
         )
 
+
+
+@cocotb.test()
+async def functional_coverage_closure(dut):
+    """Report accumulated coverage and enforce the intended coverage goals."""
+    dut._log.info(coverage.report())
+
+    assert len(coverage.addresses) == 256, (
+        f"Address coverage incomplete: {len(coverage.addresses)}/256"
+    )
+    assert coverage.banks == {0, 1, 2, 3}, (
+        f"Bank coverage incomplete: {coverage.banks}"
+    )
+    assert coverage.rows == {0, 1, 2, 3}, (
+        f"Row coverage incomplete: {coverage.rows}"
+    )
+    assert coverage.columns == set(range(16)), (
+        f"Column coverage incomplete: {coverage.columns}"
+    )
+    assert coverage.operations == {"read", "write"}, (
+        f"Operation coverage incomplete: {coverage.operations}"
+    )
+    assert len(coverage.operation_banks) == 8, (
+        f"Read/write x bank coverage incomplete: {coverage.operation_banks}"
+    )
+    assert coverage.data_classes == {"zero", "all_ones", "alternating", "other"}, (
+        f"Write-data class coverage incomplete: {coverage.data_classes}"
+    )
+    assert coverage.refresh_requested >= 2, (
+        f"Expected refresh-request coverage, got {coverage.refresh_requested}"
+    )
+    assert coverage.refresh_completed >= 2, (
+        f"Expected refresh-completion coverage, got {coverage.refresh_completed}"
+    )
+    assert coverage.reset_events >= 1, "Reset event was not sampled"
+    dut._log.info("Functional coverage goals: PASS")

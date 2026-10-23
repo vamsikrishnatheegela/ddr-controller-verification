@@ -12,8 +12,8 @@ An educational SystemVerilog memory-controller model and open-source verificatio
 - Four logical banks and an internal behavioral memory model.
 - ACTIVATE-like row opening, read/write access, and precharge/refresh sequencing.
 - Parameterized simplified timing delays.
-- Cocotb directed tests and a Python reference-model scoreboard.
-- Full 256-address write/readback sweep with bank/row/column coverage checks.
+- Cocotb directed tests, a Python reference-model scoreboard, and a lightweight functional-coverage collector.
+- Full 256-address write/readback sweep plus coverage goals for addresses, banks, rows, columns, read/write × bank bins, data classes, refresh, and reset.
 - Reset recovery, row-conflict, refresh collision, boundary-address, and data-isolation tests.
 - GitHub Actions regression with downloadable simulation evidence.
 
@@ -75,7 +75,7 @@ Every push to `main`, pull request, or manual workflow dispatch triggers the Git
 - **Test definitions and coverage checks:** [Cocotb testbench](tests/test_ddr_controller.py)
 - **Test plan and evidence instructions:** [Verification plan](docs/verification_plan.md)
 
-The earlier local baseline completed **6 tests with 6 passed, 0 failed, and 0 skipped**. The expanded suite now adds reset recovery, a full address-space sweep, and boundary/data-isolation checks. Its final pass status must be confirmed by the current regression run; see the linked workflow rather than assuming the expanded suite passed.
+The testbench contains nine directed/regression scenarios plus a functional-coverage closure test. The current regression must pass all ten tests and the configured coverage goals; confirm the exact run status in the linked workflow or local regression log.
 
 The checks are simulation evidence for the scenarios exercised. They do not prove formal correctness, physical PPA, silicon behavior, or JEDEC compliance.
 
@@ -83,6 +83,7 @@ The checks are simulation evidence for the scenarios exercised. They do not prov
 
 - Add formal properties / assertion-based verification for stronger protocol guarantees.
 - Expand FSM transition coverage and timing-parameter corner cases.
+- Add assertion-based protocol checks and negative tests for illegal request sequences.
 - Add synthesis and timing reports using a documented open-source flow.
 - If claiming PPA, archive the exact tool versions, constraints, target library, and reports.
 
