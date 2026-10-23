@@ -73,9 +73,9 @@ module ddr_controller #(
                     if (refresh_req) begin
                         if (|bank_open) begin
                             state <= ST_REFRESH_PRE;
-                            timer <= T_RP;
+                            timer <= TIMER_W'(T_RP);
                         end else begin
-                            timer <= T_RFC;
+                            timer <= TIMER_W'(T_RFC);
                             state <= (T_RFC == 0) ? ST_IDLE : ST_REFRESH_WAIT;
                             if (T_RFC == 0)
                                 refresh_done <= 1'b1;
@@ -89,7 +89,7 @@ module ddr_controller #(
 
                         if (bank_open[req_addr[7:6]] &&
                             (open_row[req_addr[7:6]] != req_addr[5:4])) begin
-                            timer <= T_RP;
+                            timer <= TIMER_W'(T_RP);
                             state <= (T_RP == 0) ? ST_ACTIVATE : ST_PRECHARGE;
                         end else if (!bank_open[req_addr[7:6]]) begin
                             state <= ST_ACTIVATE;
@@ -111,7 +111,7 @@ module ddr_controller #(
                 ST_ACTIVATE: begin
                     bank_open[saved_bank] <= 1'b1;
                     open_row[saved_bank] <= saved_row;
-                    timer <= T_RCD;
+                    timer <= TIMER_W'(T_RCD);
                     state <= (T_RCD == 0) ? ST_ACCESS : ST_RCD_WAIT;
                 end
 
@@ -137,7 +137,7 @@ module ddr_controller #(
                     if (timer > 1) timer <= timer - 1'b1;
                     else begin
                         bank_open <= 4'b0000;
-                        timer <= T_RFC;
+                        timer <= TIMER_W'(T_RFC);
                         state <= (T_RFC == 0) ? ST_IDLE : ST_REFRESH_WAIT;
                         if (T_RFC == 0)
                             refresh_done <= 1'b1;
